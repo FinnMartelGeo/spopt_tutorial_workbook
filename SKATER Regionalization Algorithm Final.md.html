@@ -1,0 +1,88 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>SKATER Regionalization Algorithm Final.md</title><style></style></head><body id="preview">
+<h1 class="code-line" data-line-start=0 data-line-end=1 ><a id="SKATER_Regionalization_Algorithm_0"></a>SKATER Regionalization Algorithm</h1>
+<h2 class="code-line" data-line-start=2 data-line-end=3 ><a id="Abstract_Explanation_Part_One_Tree_Theory_2"></a>Abstract Explanation Part One- Tree Theory</h2>
+<h3 class="code-line" data-line-start=4 data-line-end=5 ><a id="Tree_data_structure_4"></a>Tree data structure</h3>
+<ul>
+<li class="has-line-data" data-line-start="5" data-line-end="6">A disadvantage of arrays/linked lists is their <em>linear</em> nature, meaning that in order to find an item we must search through each preceding item. This is computationally and temporally inefficient.</li>
+<li class="has-line-data" data-line-start="6" data-line-end="7">Instead, we can use a “tree structure”. This is a series of nodes (leaves) connected by edges (branches).</li>
+<li class="has-line-data" data-line-start="7" data-line-end="9">Every node is connected to the root direction by exactly one edge, moving parent to child. A parent can have multiple children, but child can only have one parent.</li>
+</ul>
+<h3 class="code-line" data-line-start=9 data-line-end=10 ><a id="Spanning_Trees_9"></a>Spanning Trees</h3>
+<ul>
+<li class="has-line-data" data-line-start="10" data-line-end="11">A minimum spanning tree structure is a tree network which connects all nodes within the network, without any circuits/loops (for efficiency)</li>
+<li class="has-line-data" data-line-start="11" data-line-end="12">So within the ST network, there exists a path from any other one node to any other node, but there are no loops.</li>
+<li class="has-line-data" data-line-start="12" data-line-end="13">A “minimum cost spanning tree” is a spanning tree network which has been optimized such that all nodes are connected, without loops, and using the minimum number of edges possible.</li>
+<li class="has-line-data" data-line-start="13" data-line-end="15">A MCST can be further optimized - sometimes we don’t need all our nodes to be connected (this is highly dependent on your application of the MCST), so we can remove edges and therefore connections. This process is called “pruning” and forms the basis for the SKATER algorithm.</li>
+</ul>
+<h2 class="code-line" data-line-start=15 data-line-end=16 ><a id="Abstract_Explanation_Part_Two__SKATER_15"></a>Abstract Explanation Part Two - SKATER</h2>
+<p class="has-line-data" data-line-start="16" data-line-end="21">The skater algorithm stars with a contiguous MCST<br>
+Input :              3<br>
+/ <br>
+2   4<br>
+/ \   \</p>
+<pre><code>             1   3   5
+</code></pre>
+<p class="has-line-data" data-line-start="23" data-line-end="26">-This tree represents a continous geographic phenomena, however in our case the data will be “psuedo-continuous”, because we are working with census tract data. That is to say even if we are working with polygons, it can be thought of as VERY low resolution, unpartitioned raster data.<br>
+-When we implement SKATER, the MCST will now be “pruned”, by removing edges (connections) which link disimilar regions (census tracts)<br>
+-This is iteratively carried out, and eventually we are left with different groups of linked regions, which form the regions of the SKATER outputs.</p>
+<p class="has-line-data" data-line-start="27" data-line-end="31"><strong>Important Model Parameters</strong><br>
+<em>attrs_name</em> - The attribute which we want to be homogenous within regions<br>
+<em>n_clusters</em> - The overall number of contiguous regions we want after pruning<br>
+<em>floor</em> - minimum number of spatial objects in each region</p>
+<h2 class="code-line" data-line-start=32 data-line-end=33 ><a id="Implementation_32"></a>Implementation</h2>
+<p class="has-line-data" data-line-start="34" data-line-end="36"><em>please download scikit-learn module using</em><br>
+pip install -U scikit-learn</p>
+<h3 class="code-line" data-line-start=37 data-line-end=38 ><a id="Step_1_Load_Libraries_37"></a>Step 1: Load Libraries</h3>
+<p class="has-line-data" data-line-start="38" data-line-end="48">import geopandas as gpd<br>
+import pandas as pd<br>
+import libpysal<br>
+import matplotlib.pyplot as plt<br>
+import numpy<br>
+import pandas<br>
+import shapely<br>
+from sklearn.metrics import pairwise as skm<br>
+import spopt<br>
+import warnings</p>
+<h3 class="code-line" data-line-start=49 data-line-end=50 ><a id="Step_2_Load__Clean__Project_Data_49"></a>Step 2: Load + Clean + Project Data</h3>
+<p class="has-line-data" data-line-start="50" data-line-end="56">shapefile_path = “SPOPT_DATA_JOINED.shp”<br>
+gdf = gpd.read_file(shapefile_path)<br>
+gdf[“spopt_v244”] = pd.to_numeric(gdf[“spopt_v244”], errors=“coerce”)<br>
+gdf[“spopt_v244”] = gdf[“spopt_v244”].fillna(gdf[“spopt_v244”].median())<br>
+print(gdf.crs)<br>
+gdf = gdf.to_crs(“EPSG:2272”)</p>
+<h3 class="code-line" data-line-start=57 data-line-end=58 ><a id="Step_3_Define_parameters_57"></a>Step 3: Define parameters</h3>
+<p class="has-line-data" data-line-start="58" data-line-end="64">attrs_name = [“spopt_v244”] # variable we are using to regionalize<br>
+w = libpysal.weights.Queen.from_dataframe(gdf) # create spatial weights object from shp<br>
+n_clusters = 12 # number of contigous regions we want<br>
+floor = 1 # minimum number of spatial objects in each region<br>
+trace = False # wether or not we store intermediate values<br>
+islands = “increase” # adds “islands” to existing regions, rather than making them their own</p>
+<h3 class="code-line" data-line-start=65 data-line-end=66 ><a id="Step_4_create_minimum_cost_spanning_forest_MCST_65"></a>Step 4: create minimum cost spanning forest (MCST)</h3>
+<p class="has-line-data" data-line-start="66" data-line-end="73">spanning_forest_kwds = dict(<br>
+dissimilarity=skm.manhattan_distances,<br>
+affinity=None,<br>
+reduction=numpy.sum,<br>
+center=numpy.mean,<br>
+verbose=2<br>
+)</p>
+<h3 class="code-line" data-line-start=73 data-line-end=74 ><a id="Step_5_Solve_the_model_73"></a>Step 5: Solve the model</h3>
+<p class="has-line-data" data-line-start="74" data-line-end="85">model = spopt.region.Skater(<br>
+gdf,<br>
+w,<br>
+attrs_name,<br>
+n_clusters=n_clusters,<br>
+floor=floor,<br>
+trace=trace,<br>
+islands=islands,<br>
+spanning_forest_kwds=spanning_forest_kwds<br>
+)<br>
+model.solve()</p>
+<p class="has-line-data" data-line-start="86" data-line-end="88">#Step 6: Add to data frame<br>
+gdf[“demo_regions”] = model.labels_</p>
+<p class="has-line-data" data-line-start="89" data-line-end="94">#Step 7: Visualize<br>
+gdf[“region”] = model.labels_  # Assign the cluster labels to the GeoDataFrame<br>
+gdf.plot(column=“region”, categorical=True, legend=True, figsize=(10, 6))<br>
+plt.title(“Skater Clustering with Islands as Separate Regions”)<br>
+plt.show()</p>
+
+</body></html>
